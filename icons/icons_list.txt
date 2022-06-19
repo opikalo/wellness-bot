@@ -1,0 +1,9 @@
+https://a.slack-edge.com/production-standard-emoji-assets/13.0/google-small/1f4aa@2x.png
+https://a.slack-edge.com/production-standard-emoji-assets/13.0/google-small/1f9d8@2x.png
+https://a.slack-edge.com/production-standard-emoji-assets/13.0/google-small/26bd@2x.png
+https://a.slack-edge.com/production-standard-emoji-assets/13.0/google-small/1f46a@2x.png
+https://a.slack-edge.com/production-standard-emoji-assets/13.0/google-small/1f4d6@2x.png
+https://a.slack-edge.com/production-standard-emoji-assets/13.0/google-small/1f3a8@2x.png
+https://a.slack-edge.com/production-standard-emoji-assets/13.0/google-small/1f9d1-200d-1f3eb@2x.png
+https://a.slack-edge.com/production-standard-emoji-assets/13.0/google-small/1f33b@2x.png
+https://a.slack-edge.com/production-standard-emoji-assets/13.0/google-small/1f64b@2x.png
