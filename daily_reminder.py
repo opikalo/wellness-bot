@@ -8,11 +8,15 @@ from cachier import cachier
 from elasticsearch_dsl import Document, Date, Integer, Keyword, Text
 from elasticsearch_dsl.connections import connections
 
+import humanize
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from meta import CATEGORIES
+from meta import (CATEGORIES, ALL_TOTALS_HASH, USER_TOTALS_HASH,
+                  DAILY_TOTALS_HASH, WEEKLY_USER_TOTALS_HASH)
+
+from wellness_redis import get_redis
 
 from dotenv import load_dotenv
 
@@ -46,9 +50,33 @@ def get_channel_id(channel_name):
 def main():
     channel_id = get_channel_id(CHANNEL_NAME)
 
+    war_start = datetime.datetime(day=24, month=2, year=2022)
+    now = datetime.datetime.now()
+
+    day_number = (now - war_start).days
+    day_number_str = humanize.ordinal(day_number)
+    today_str = now.date().strftime("%A, %B %d, %Y")
+
+    yesterday = now - datetime.timedelta(days=1)
+
+    year, week, day = yesterday.isocalendar()
+
+    # daily balance for all users
+    # it is useful when you say "Yesterday we all made XXX points"
+    daily_activity_hash = f'{CHANNEL_NAME}-{year}-{week}-{day}'
+    total_activity_hash = f'{CHANNEL_NAME}'
+
+    rds = get_redis()
+    with rds.pipeline() as pipe:
+        pipe.hget(DAILY_TOTALS_HASH, daily_activity_hash)\
+            .hget(ALL_TOTALS_HASH, total_activity_hash)
+        (daily_balance, total) = pipe.execute()
+
+    breakpoint()
     daily_post_status = app.client.chat_postMessage(
         channel=channel_id,
-        text='<!channel> Today is a good day to achieve the wellness goal'
+        text=f"<!channel> Today is {today_str}, the {day_number_str} day of the Russian Invasion of :flag-ua: Please consider participating in the wellness challenge today!"
+        f"\n_Yesterday, your commitment to wellness contributed {daily_balance}$ towards saving people from pain and suffering. Together we are stronger than ever. Thank you!_"
     )
 
     timestamp = daily_post_status.data['ts']

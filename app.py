@@ -11,7 +11,7 @@ from elasticsearch_dsl import Document, Date, Integer, Keyword, Float, Index
 from elasticsearch_dsl.connections import connections
 
 
-import redis
+
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -21,7 +21,9 @@ from dotenv import load_dotenv
 
 import sentry_sdk
 
-from meta import CATEGORIES
+from wellness_redis import get_redis
+from meta import (CATEGORIES, ALL_TOTALS_HASH, USER_TOTALS_HASH,
+                  DAILY_TOTALS_HASH, WEEKLY_USER_TOTALS_HASH)
 
 load_dotenv()
 
@@ -33,14 +35,6 @@ sentry_sdk.init(
 logging.basicConfig(level=logging.INFO)
 
 
-REDIS_HOST = os.environ.get('REDIS_HOST', 'localhost')
-REDIS_PORT = int(os.environ.get('REDIS_PORT', '6379'))
-REDIS_DB = int(os.environ.get('REDIS_DB', '0'))
-
-ALL_TOTALS_HASH = 'all_points'
-USER_TOTALS_HASH = 'user_points'
-DAILY_TOTALS_HASH = 'daily_points'
-WEEKLY_USER_TOTALS_HASH = 'user_weekly_points'
 
 
 SLACK_BOT_TOKEN = os.environ['SLACK_BOT_TOKEN']
@@ -94,9 +88,6 @@ PRAISE = [
 ]
 
 
-def get_redis():
-    return redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB,
-                       decode_responses=True)
 
 
 def convert_slack_time(ts):
@@ -372,10 +363,11 @@ def reaction_added(event, say, logger):
         return
 
     reaction = event['reaction']
+    icon = get_reaction_icon(reaction)
 
     reaction_to_points = points_from_reaction()
     valid_reactions = reaction_to_points.keys()
-    if get_reaction_icon(reaction) not in valid_reactions:
+    if icon not in valid_reactions:
         return
 
     pprint.pprint(event)
@@ -393,14 +385,14 @@ def reaction_added(event, say, logger):
 
     slack_user_id = event['user']
 
-    points = reaction_to_points[reaction]
+    points = reaction_to_points[icon]
 
     if event['type'] == 'reaction_removed':
         points = -points
 
     activity = WellnessActivity(
         channel_id=channel_id,
-        activity=reaction,
+        activity=icon,
         user_name=user_name,
         user_email=user_email,
         challenge_ts=challenge_ts,
