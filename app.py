@@ -23,7 +23,8 @@ import sentry_sdk
 
 from wellness_redis import get_redis
 from meta import (CATEGORIES, ALL_TOTALS_HASH, USER_TOTALS_HASH,
-                  DAILY_TOTALS_HASH, WEEKLY_USER_TOTALS_HASH)
+                  DAILY_TOTALS_HASH, DAILY_UNIQUE_HASH,
+                  WEEKLY_USER_TOTALS_HASH)
 
 load_dotenv()
 
@@ -91,7 +92,7 @@ PRAISE = [
 
 
 def convert_slack_time(ts):
-    dt = datetime.datetime.utcfromtimestamp(float(ts))
+    dt = datetime.datetime.fromtimestamp(float(ts))
     return dt
 
 
@@ -107,6 +108,16 @@ def points_from_reaction():
         reaction_to_points[category.reaction] = category.points
 
     return reaction_to_points
+
+
+@cachier()
+def description_from_reaction():
+    reaction_to_description = {}
+    for category in CATEGORIES:
+        reaction_to_description[category.reaction] = category.description
+
+    return reaction_to_description
+
 
 def get_points(reaction):
     mapping = points_from_reaction()
@@ -345,6 +356,7 @@ def get_workspace_url():
 def get_reaction_icon(reaction):
     return reaction.split('::')[0]
 
+
 @app.event("reaction_added")
 @app.event("reaction_removed")
 def reaction_added(event, say, logger):
@@ -387,6 +399,9 @@ def reaction_added(event, say, logger):
 
     points = reaction_to_points[icon]
 
+    reaction_description = description_from_reaction()
+    description = reaction_description[icon]
+
     if event['type'] == 'reaction_removed':
         points = -points
 
@@ -414,6 +429,8 @@ def reaction_added(event, say, logger):
                                                activity.challenge_week,
                                                activity.challenge_day)
 
+    logger.warning('daily_hash: %s', daily_activity_hash)
+
     # total balance for each user
     # Used when user asks how much he contributed total
     user_activity_hash = '{}-{}'.format(activity.channel,
@@ -429,10 +446,11 @@ def reaction_added(event, say, logger):
         pipe.hget(WEEKLY_USER_TOTALS_HASH, weekly_user_activity_hash)\
             .hincrby(WEEKLY_USER_TOTALS_HASH, weekly_user_activity_hash,
                      points)\
+            .pfadd(DAILY_UNIQUE_HASH, daily_activity_hash, activity.user_name)\
             .hincrby(DAILY_TOTALS_HASH, daily_activity_hash, points)\
             .hincrby(USER_TOTALS_HASH, user_activity_hash, points)\
             .hincrby(ALL_TOTALS_HASH, total_activity_hash, points)
-        (before_balance, after_balance, daily_balance,
+        (before_balance, after_balance, unique_status, daily_balance,
          user_balance, total) = pipe.execute()
 
     logger.warning('%s: before=%s, after=%s, daily=%s, '
@@ -463,7 +481,7 @@ def reaction_added(event, say, logger):
     if event['type'] == 'reaction_added':
         app.client.chat_postMessage(
             channel=slack_user_id,
-            text=f'{points:+} points for :{reaction}: <{parent_url}|here> '
+            text=f'{points:+} points for :{reaction}:={description} <{parent_url}|here> '
             '(your weekly balance is '
             f'{after_balance} out of {BALANCE_CAP})'
         )

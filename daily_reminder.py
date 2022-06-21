@@ -2,6 +2,7 @@
 import datetime
 import os
 import pprint
+import logging
 
 from cachier import cachier
 
@@ -14,7 +15,8 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from meta import (CATEGORIES, ALL_TOTALS_HASH, USER_TOTALS_HASH,
-                  DAILY_TOTALS_HASH, WEEKLY_USER_TOTALS_HASH)
+                  DAILY_TOTALS_HASH, DAILY_UNIQUE_HASH,
+                  WEEKLY_USER_TOTALS_HASH)
 
 from wellness_redis import get_redis
 
@@ -66,17 +68,21 @@ def main():
     daily_activity_hash = f'{CHANNEL_NAME}-{year}-{week}-{day}'
     total_activity_hash = f'{CHANNEL_NAME}'
 
+    logging.warning(daily_activity_hash)
+
     rds = get_redis()
     with rds.pipeline() as pipe:
         pipe.hget(DAILY_TOTALS_HASH, daily_activity_hash)\
+            .pfcount(DAILY_UNIQUE_HASH, daily_activity_hash)\
             .hget(ALL_TOTALS_HASH, total_activity_hash)
-        (daily_balance, total) = pipe.execute()
+        (daily_balance, user_count, total) = pipe.execute()
 
-    breakpoint()
     daily_post_status = app.client.chat_postMessage(
         channel=channel_id,
-        text=f"<!channel> Today is {today_str}, the {day_number_str} day of the Russian Invasion of :flag-ua: Please consider participating in the wellness challenge today!"
-        f"\n_Yesterday, your commitment to wellness contributed {daily_balance}$ towards saving people from pain and suffering. Together we are stronger than ever. Thank you!_"
+        text=f"<!channel> Today is {today_str}, the {day_number_str} day of the Russian Invasion of :flag-ua: "
+        "*\nPlease consider participating in the wellness challenge today!*"
+        f"\n_Yesterday, commitment to wellness from {user_count} users added {daily_balance}$ "
+        "towards saving people from pain and suffering. Together we are stronger than ever. Thank you!_"
     )
 
     timestamp = daily_post_status.data['ts']
