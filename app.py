@@ -154,7 +154,6 @@ def setup_elastic(elastic_host):
     connections.create_connection(hosts=[elastic_host])
 
     index = Index(os.environ['WELLNESS_INDEX'])
-    index.delete()
 
     # create the mappings in elasticsearch
     WellnessActivity.init()
