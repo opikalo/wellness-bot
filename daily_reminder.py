@@ -83,7 +83,7 @@ def main():
         text=f"<!channel> Today is {today_str}, the {day_number_str} day of the Russian Invasion of :flag-ua: "
         "\n*Please consider participating in the wellness challenge today!*"
         f"\n_Yesterday, {user_count_str} users committed to wellness, adding {daily_balance}$ "
-        "towards saving people from pain and suffering. Together we are stronger than ever. Thank you!_"
+        "towards reducing pain and suffering. Together we are stronger than ever. Thank you!_"
     )
 
     timestamp = daily_post_status.data['ts']
