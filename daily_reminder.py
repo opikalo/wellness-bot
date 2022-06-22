@@ -32,10 +32,17 @@ app = App(token=SLACK_BOT_TOKEN)
 
 
 def get_channel_id(channel_name):
-    conv_list = app.client.conversations_list()
+    cursor = None
+    channels = []
+    while True:
+        conv_list = app.client.conversations_list(cursor=cursor, limit=200)
+        channels.extend(conv_list.data['channels'])
+        cursor = conv_list['response_metadata']['next_cursor']
+        if cursor == '':
+            break
 
     channel_mapping = {}
-    for channel in conv_list.data['channels']:
+    for channel in channels:
         channel_mapping[channel['name']] = channel['id']
 
     return channel_mapping[channel_name]
