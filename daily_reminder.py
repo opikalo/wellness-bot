@@ -31,7 +31,6 @@ CHANNEL_NAME = os.environ['SLACK_POST_CHANNEL']
 app = App(token=SLACK_BOT_TOKEN)
 
 
-@cachier()
 def get_channel_id(channel_name):
     conv_list = app.client.conversations_list()
 
