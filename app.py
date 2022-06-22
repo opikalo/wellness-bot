@@ -277,18 +277,24 @@ def handle_member_left_channel_events(body, logger):
     logger.info(body)
 
 
-@cachier()
+@cachier(stale_after=datetime.timedelta(weeks=1))
 def channel_names():
-    conv_list = app.client.conversations_list()
+    cursor = None
+    channels = []
+    while True:
+        conv_list = app.client.conversations_list(cursor=cursor, limit=200)
+        channels.extend(conv_list.data['channels'])
+        cursor = conv_list['response_metadata']['next_cursor']
+        if cursor == '':
+            break
 
     channel_mapping = {}
-    for channel in conv_list.data['channels']:
+    for channel in channels:
         channel_mapping[channel['id']] = channel['name']
 
     return channel_mapping
 
 
-@cachier()
 def get_channel_name(channel_id):
     channel_mapping = channel_names()
     return channel_mapping[channel_id]
