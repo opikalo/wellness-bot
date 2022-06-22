@@ -1,22 +1,15 @@
-
 import datetime
 import os
-import pprint
 import logging
 
 from cachier import cachier
 
-from elasticsearch_dsl import Document, Date, Integer, Keyword, Text
-from elasticsearch_dsl.connections import connections
-
 import humanize
 
 from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from meta import (CATEGORIES, ALL_TOTALS_HASH, USER_TOTALS_HASH,
-                  DAILY_TOTALS_HASH, DAILY_UNIQUE_HASH,
-                  WEEKLY_USER_TOTALS_HASH)
+from meta import (CATEGORIES, ALL_TOTALS_HASH,
+                  DAILY_TOTALS_HASH, DAILY_UNIQUE_HASH)
 
 from wellness_redis import get_redis
 
@@ -32,11 +25,11 @@ sentry_sdk.init(
 )
 
 SLACK_BOT_TOKEN = os.environ['SLACK_BOT_TOKEN']
-SLACK_APP_TOKEN = os.environ['SLACK_APP_TOKEN']
 
-CHANNEL_NAME = 'wellness-ukraine'
+CHANNEL_NAME = os.environ['SLACK_POST_CHANNEL']
 
 app = App(token=SLACK_BOT_TOKEN)
+
 
 @cachier()
 def get_channel_id(channel_name):
@@ -77,11 +70,19 @@ def main():
             .hget(ALL_TOTALS_HASH, total_activity_hash)
         (daily_balance, user_count, total) = pipe.execute()
 
+    user_count_str = humanize.apnumber(user_count)
+
+    if daily_balance is None:
+        daily_balance = 'small amount'
+
+    if user_count is None or user_count == 0:
+        user_count_str = 'some'
+
     daily_post_status = app.client.chat_postMessage(
         channel=channel_id,
         text=f"<!channel> Today is {today_str}, the {day_number_str} day of the Russian Invasion of :flag-ua: "
-        "*\nPlease consider participating in the wellness challenge today!*"
-        f"\n_Yesterday, commitment to wellness from {user_count} users added {daily_balance}$ "
+        "\n*Please consider participating in the wellness challenge today!*"
+        f"\n_Yesterday, {user_count_str} users committed to wellness, adding {daily_balance}$ "
         "towards saving people from pain and suffering. Together we are stronger than ever. Thank you!_"
     )
 

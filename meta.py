@@ -8,7 +8,7 @@ WEEKLY_USER_TOTALS_HASH = 'user_weekly_points'
 
 
 WellnessOption = collections.namedtuple('WellnessOption',
-                                        ['reaction', 'alias', 'description', 'points'])
+                                        ['reaction', 'action', 'description', 'points'])
 
 # icon, alias, full description, points
 _CATEGORIES = [
@@ -36,3 +36,17 @@ _CATEGORIES = [
 ]
 
 CATEGORIES = [WellnessOption(*category) for category in _CATEGORIES]
+
+
+class MetaConversion:
+    reaction_to_points = {}
+    reaction_to_description = {}
+    reaction_to_action = {}
+    valid_reactions = set()
+
+    def __init__(self):
+        for category in CATEGORIES:
+            self.valid_reactions.add(category.reaction)
+            self.reaction_to_points[category.reaction] = category.points
+            self.reaction_to_description[category.reaction] = category.description
+            self.reaction_to_action[category.reaction] = category.action

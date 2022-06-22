@@ -1,42 +1,38 @@
 import datetime
-from decimal import Decimal
 
 import logging
 import os
 import pprint
 
 from cachier import cachier
-
-from elasticsearch_dsl import Document, Date, Integer, Keyword, Float, Index
+from elasticsearch_dsl import Document, Date, Integer, Keyword, Index
 from elasticsearch_dsl.connections import connections
-
-
-
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-
 from dotenv import load_dotenv
 
 import sentry_sdk
+from sentry_sdk.integrations.redis import RedisIntegration
 
 from wellness_redis import get_redis
-from meta import (CATEGORIES, ALL_TOTALS_HASH, USER_TOTALS_HASH,
-                  DAILY_TOTALS_HASH, DAILY_UNIQUE_HASH,
+from meta import (MetaConversion, ALL_TOTALS_HASH,
+                  USER_TOTALS_HASH, DAILY_TOTALS_HASH, DAILY_UNIQUE_HASH,
                   WEEKLY_USER_TOTALS_HASH)
 
 load_dotenv()
 
 sentry_sdk.init(
-    os.environ['SENTRY_TOKEN'],
-    traces_sample_rate=1.0
+    dsn=os.environ['SENTRY_TOKEN'],
+    traces_sample_rate=1.0,
+    max_breadcrumbs=50,
+    integrations=[
+        RedisIntegration(),
+    ],
 )
 
 logging.basicConfig(level=logging.INFO)
-
-
-
 
 SLACK_BOT_TOKEN = os.environ['SLACK_BOT_TOKEN']
 SLACK_APP_TOKEN = os.environ['SLACK_APP_TOKEN']
@@ -44,6 +40,8 @@ SLACK_APP_TOKEN = os.environ['SLACK_APP_TOKEN']
 BALANCE_CAP = 100
 
 app = App(token=SLACK_BOT_TOKEN)
+
+meta = MetaConversion()
 
 PRAISE = [
     "Having you on the team makes a huge difference.",
@@ -89,8 +87,6 @@ PRAISE = [
 ]
 
 
-
-
 def convert_slack_time(ts):
     dt = datetime.datetime.fromtimestamp(float(ts))
     return dt
@@ -100,28 +96,6 @@ def get_date_meta(ts):
     date = convert_slack_time(ts)
     year, week, day = date.isocalendar()
     return (date, year, week, day)
-
-@cachier()
-def points_from_reaction():
-    reaction_to_points = {}
-    for category in CATEGORIES:
-        reaction_to_points[category.reaction] = category.points
-
-    return reaction_to_points
-
-
-@cachier()
-def description_from_reaction():
-    reaction_to_description = {}
-    for category in CATEGORIES:
-        reaction_to_description[category.reaction] = category.description
-
-    return reaction_to_description
-
-
-def get_points(reaction):
-    mapping = points_from_reaction()
-    return mapping[reaction]
 
 
 class WellnessActivity(Document):
@@ -169,10 +143,8 @@ class WellnessActivity(Document):
 
         return super(WellnessActivity, self).save(** kwargs)
 
-
     def is_reported(self):
         return datetime.datetime.utcnow() >= self.reported_date
-
 
 
 def setup_elastic(elastic_host):
@@ -188,21 +160,19 @@ def setup_elastic(elastic_host):
     WellnessActivity.init()
 
 
-setup_elastic(os.environ['ELASTIC_HOST'])
-
-def post_elastic(record):
-    record.save()
-
-
 @app.event("app_mention")
 def mention_handler(body, say, logger):
-    pprint.pprint(body)
+    logger.warning(pprint.pformat(body))
 
     rds = get_redis()
     pong = rds.ping()
     logger.warning('Redis PING: %s', pong)
-    say('ping:{}'.format(str(pong)))
+    say(f'redis ping:{pong}')
 
+    es_health = connections.get_connection().cluster.health()
+    logger.warning('ES health: %s', es_health)
+    say(f'es health: {es_health}')
+    sentry_sdk.capture_message("Testing sentry integration")
 
 
 # @app.event("app_mention")
@@ -240,8 +210,7 @@ def mention_handler(body, say, logger):
 #                 timestamp=body["event"]["event_ts"],
 #             )
 
-
-#@cachier(stale_after=datetime.timedelta(weeks=1))
+@cachier(stale_after=datetime.timedelta(weeks=1))
 def get_cached_user_data(user):
     # Returs something like this:
     # {'ok': True,
@@ -292,10 +261,6 @@ def get_cached_user_data(user):
     return app.client.users_info(user=user).data
 
 
-def get_points(activity):
-    return 10
-
-
 @app.event("member_joined_channel")
 def member_joined(event):
     pprint.pprint(event)
@@ -304,8 +269,9 @@ def member_joined(event):
 
     app.client.chat_postMessage(
         channel=dm_channel_id,
-        text = 'welcome to the challenge'
+        text='welcome to the challenge'
     )
+
 
 @app.event("member_left_channel")
 def handle_member_left_channel_events(body, logger):
@@ -321,6 +287,7 @@ def channel_names():
         channel_mapping[channel['id']] = channel['name']
 
     return channel_mapping
+
 
 @cachier()
 def get_channel_name(channel_id):
@@ -342,6 +309,7 @@ def get_auth():
     # }
 
     return auth
+
 
 @cachier()
 def get_bot_id():
@@ -375,39 +343,39 @@ def reaction_added(event, say, logger):
         return
 
     reaction = event['reaction']
+
+    # reaction has skin tone, while icon is just an icon name
     icon = get_reaction_icon(reaction)
 
-    reaction_to_points = points_from_reaction()
-    valid_reactions = reaction_to_points.keys()
-    if icon not in valid_reactions:
+    if icon not in meta.valid_reactions:
         return
 
-    pprint.pprint(event)
+    logger.debug(pprint.pformat(event))
 
     user_info = get_cached_user_data(event["user"])
 
     user_name = user_info['user']['name']
     user_email = user_info['user']['profile']['email']
+    sentry_sdk.set_user({'username': user_name, 'email': user_email})
 
     channel_id = event['item']['channel']
     challenge_ts = event['item']['ts']
     reaction_ts = event['event_ts']
 
-    logger.warning('%s reaction from %s (%s)', reaction, user_name, user_email)
+    logger.debug('%s reaction from %s (%s)', reaction, user_name, user_email)
 
     slack_user_id = event['user']
 
-    points = reaction_to_points[icon]
-
-    reaction_description = description_from_reaction()
-    description = reaction_description[icon]
+    points = meta.reaction_to_points[icon]
+    description = meta.reaction_to_description[icon]
+    action = meta.reaction_to_action[icon]
 
     if event['type'] == 'reaction_removed':
         points = -points
 
     activity = WellnessActivity(
         channel_id=channel_id,
-        activity=icon,
+        activity=action,
         user_name=user_name,
         user_email=user_email,
         challenge_ts=challenge_ts,
@@ -468,9 +436,9 @@ def reaction_added(event, say, logger):
             channel=slack_user_id,
             text=':tada: Congratulations on topping out the maximum weekly '
             f'wellness contribution of {BALANCE_CAP} points!\n _Feel free to '
-            ' go above the limit if it helps you in tracking the your '
-            'wellness goals: we do not mind at all, but unfortunately only'
-            f' {BALANCE_CAP} points will be matched by Intuitive Foundation._')
+            ' go above the limit if it helps you in track your '
+            'wellness goals: we do not mind at all. However, Intuitive Foundation'
+            f' matches only up to {BALANCE_CAP} points weekly._')
 
         say(f':tada: <@{slack_user_id}> reached a weekly '
             f'limit of {BALANCE_CAP} points!')
@@ -507,5 +475,6 @@ def hello(body, ack):
 
 
 if __name__ == "__main__":
+    setup_elastic(os.environ['ELASTIC_HOST'])
     handler = SocketModeHandler(app, SLACK_APP_TOKEN)
     handler.start()
