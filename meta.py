@@ -8,7 +8,27 @@ WEEKLY_USER_TOTALS_HASH = 'user_weekly_points'
 
 
 WellnessOption = collections.namedtuple('WellnessOption',
-                                        ['reaction', 'action', 'description', 'points'])
+                                        ['reaction', 'action', 'description',
+                                         'points'])
+
+Reward = collections.namedtuple('Reward', ['cost', 'reaction', 'description'])
+
+
+_MEGA_REWARDS = [
+    (12000, 'ambulance', 'Ambulance Purchase'),
+    (6000, 'truck', 'SUV for medical delivery or evacuation'),
+]
+
+
+_REWARDS = [
+    (1000, 'medical_symbol', '20 suitcases of medical supplies checked baggage'),
+    (500, 'fuelpump', 'Fuel and canisters for one 3 day evacuation mission'),
+    (250, 'drop_of_blood', 'Emergency medical supplies for the front line'),
+    (125, 'helmet_with_white_cross', 'North American Rescue M-FAK mini advanced first aid kits'),
+    (50, 'pill', 'Flu, Cough, Cold, and Anti-Nausea Medicine'),
+    (30, 'adhesive_bandage', 'QuikClot Combat Gauze'),
+]
+
 
 # icon, alias, full description, points
 _CATEGORIES = [
@@ -36,6 +56,10 @@ _CATEGORIES = [
 ]
 
 CATEGORIES = [WellnessOption(*category) for category in _CATEGORIES]
+
+REWARDS = [Reward(*reward) for reward in _REWARDS]
+
+MEGA_REWARDS = [Reward(*reward) for reward in _MEGA_REWARDS]
 
 
 class MetaConversion:

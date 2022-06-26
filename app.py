@@ -17,7 +17,7 @@ import sentry_sdk
 from sentry_sdk.integrations.redis import RedisIntegration
 
 from wellness_redis import get_redis
-from meta import (MetaConversion, ALL_TOTALS_HASH,
+from meta import (MetaConversion, REWARDS, MEGA_REWARDS, ALL_TOTALS_HASH,
                   USER_TOTALS_HASH, DAILY_TOTALS_HASH, DAILY_UNIQUE_HASH,
                   WEEKLY_USER_TOTALS_HASH)
 
@@ -85,6 +85,7 @@ PRAISE = [
     "Your work never ceases to amaze me!",
     "Things have definitely been crazy lately, but you’re crushing it!"
 ]
+
 
 
 def convert_slack_time(ts):
@@ -419,12 +420,13 @@ def reaction_added(event, say, logger):
         pipe.hget(WEEKLY_USER_TOTALS_HASH, weekly_user_activity_hash)\
             .hincrby(WEEKLY_USER_TOTALS_HASH, weekly_user_activity_hash,
                      points)\
-            .pfadd(DAILY_UNIQUE_HASH, daily_activity_hash, activity.user_name)\
+            .pfadd(daily_activity_hash, activity.user_name)\
             .hincrby(DAILY_TOTALS_HASH, daily_activity_hash, points)\
+            .hget(USER_TOTALS_HASH, user_activity_hash)\
             .hincrby(USER_TOTALS_HASH, user_activity_hash, points)\
             .hincrby(ALL_TOTALS_HASH, total_activity_hash, points)
         (before_balance, after_balance, unique_status, daily_balance,
-         user_balance, total) = pipe.execute()
+         user_before_balance, user_balance, total) = pipe.execute()
 
     logger.warning('%s: before=%s, after=%s, daily=%s, '
                    'user_total=%s, total=%s',
@@ -436,6 +438,29 @@ def reaction_added(event, say, logger):
     else:
         before_balance = int(before_balance)
 
+
+    if user_before_balance is None:
+        user_before_balance = 0
+    else:
+        user_before_balance = int(user_before_balance)
+
+    if user_balance is None:
+        user_balance = 0
+    else:
+        user_balance = int(user_balance)
+
+    for reward in REWARDS:
+        threshold = reward.cost
+        if user_before_balance < threshold and user_balance >= threshold:
+            app.client.chat_postMessage(
+                channel=slack_user_id,
+                text=f':tada: You have a :{reward.reaction}: reward: '
+                f'{reward.description}. Thank you so much!')
+
+            say(f':tada: <@{slack_user_id}> just earned :{reward.reaction}: '
+                f'badge @{reward.cost} points: {reward.description}')
+
+
     if before_balance < BALANCE_CAP and after_balance >= BALANCE_CAP:
         app.client.chat_postMessage(
             channel=slack_user_id,
@@ -446,7 +471,7 @@ def reaction_added(event, say, logger):
             f' matches only up to {BALANCE_CAP} points weekly._')
 
         say(f':tada: <@{slack_user_id}> reached a weekly '
-            f'limit of {BALANCE_CAP} points!')
+            f'maximum weekly goal of {BALANCE_CAP} points!')
 
     logger.warning('%s=%s', weekly_user_activity_hash, after_balance)
 
@@ -456,7 +481,7 @@ def reaction_added(event, say, logger):
             channel=slack_user_id,
             text=f'{points:+} points for :{reaction}:={description} <{parent_url}|here> '
             '(your weekly balance is '
-            f'{after_balance} out of {BALANCE_CAP})'
+            f'{after_balance} out of weekly {BALANCE_CAP}. Grand total is {user_balance} points).'
         )
     elif event['type'] == 'reaction_removed':
         app.client.chat_postMessage(

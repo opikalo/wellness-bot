@@ -72,7 +72,7 @@ def main():
     rds = get_redis()
     with rds.pipeline() as pipe:
         pipe.hget(DAILY_TOTALS_HASH, daily_activity_hash)\
-            .pfcount(DAILY_UNIQUE_HASH, daily_activity_hash)\
+            .pfcount(daily_activity_hash)\
             .hget(ALL_TOTALS_HASH, total_activity_hash)
         (daily_balance, user_count, total) = pipe.execute()
 
