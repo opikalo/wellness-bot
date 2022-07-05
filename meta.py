@@ -6,6 +6,7 @@ DAILY_TOTALS_HASH = 'daily_points'
 DAILY_UNIQUE_HASH = 'daily_unique'
 WEEKLY_USER_TOTALS_HASH = 'user_weekly_points'
 
+BALANCE_CAP = 100
 
 WellnessOption = collections.namedtuple('WellnessOption',
                                         ['reaction', 'action', 'description',

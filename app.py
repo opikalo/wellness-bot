@@ -17,7 +17,7 @@ import sentry_sdk
 from sentry_sdk.integrations.redis import RedisIntegration
 
 from wellness_redis import get_redis
-from meta import (MetaConversion, REWARDS, MEGA_REWARDS, ALL_TOTALS_HASH,
+from meta import (MetaConversion, BALANCE_CAP, REWARDS, MEGA_REWARDS, ALL_TOTALS_HASH,
                   USER_TOTALS_HASH, DAILY_TOTALS_HASH, DAILY_UNIQUE_HASH,
                   WEEKLY_USER_TOTALS_HASH)
 
@@ -37,7 +37,7 @@ logging.basicConfig(level=logging.INFO)
 SLACK_BOT_TOKEN = os.environ['SLACK_BOT_TOKEN']
 SLACK_APP_TOKEN = os.environ['SLACK_APP_TOKEN']
 
-BALANCE_CAP = 100
+
 
 app = App(token=SLACK_BOT_TOKEN)
 
@@ -466,7 +466,7 @@ def reaction_added(event, say, logger):
             channel=slack_user_id,
             text=':tada: Congratulations on topping out the maximum weekly '
             f'wellness contribution of {BALANCE_CAP} points!\n _Feel free to '
-            ' go above the limit if it helps you in track your '
+            ' go above the limit if it helps you to track your '
             'wellness goals: we do not mind at all. However, Intuitive Foundation'
             f' matches only up to {BALANCE_CAP} points weekly._')
 
