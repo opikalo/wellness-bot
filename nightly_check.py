@@ -1,6 +1,7 @@
 import datetime
 import os
 import logging
+import random
 
 from cachier import cachier
 
@@ -36,6 +37,7 @@ CHANNEL_NAME = os.environ['SLACK_POST_CHANNEL']
 
 app = App(token=SLACK_BOT_TOKEN)
 
+ADMIN = 'oleksiy.pikalo'
 
 def get_channel_id(channel_name):
     cursor = None
@@ -121,14 +123,17 @@ def main():
                                               Q('match', challenge_year=year),
                                               Q('match', challenge_week=week),
                                               Q('match', challenge_day=day)])
-    daily_user_search = daily_user_search.source(['user_name'])
+    daily_user_search = daily_user_search.source(['user_name', 'challenge_link'])
 
     results = daily_user_search.scan()
 
     todays_active_users = set()
 
+    challenge_link = None
     for activity in results:
         todays_active_users.add(activity.user_name)
+        if not challenge_link:
+            challenge_link = activity.challenge_link
 
     users = user_names()
 
@@ -149,11 +154,33 @@ def main():
     print('missing activity:', missing_activity)
     print('total: ', len(missing_activity))
 
+
+    reminders = (
+        f"Everyday I see friends reaching their <{challenge_link}|#wellness-ukraine> goals and it restores my faith in humanity. Thank you from the bottom of my heart <{challenge_link}|for your continuous support>",
+        f"Today <http://go/wellness-ukraine-stats|{len(todays_active_users)}> employees participated in <{challenge_link}|#wellness-ukraine challenge>. I hope you will <{challenge_link}|join them. Thank you!>",
+        f"It is not too late to join <http://go/wellness-ukraine-stats|{len(todays_active_users)}> employees who participated in <{challenge_link}|#wellness-ukraine challenge>. Please <{challenge_link}|continue your support.Thank you!>",
+        f"It is not too late to reward yourself <{challenge_link}|with some #wellness-ukraine :muscle:>",
+        f"Today <http://go/wellness-ukraine-stats|{len(todays_active_users)}> of your friends enriched their life with <{challenge_link}|#wellness-ukraine.> It is not too late  <{challenge_link}|to join them. Thank you!>",
+        #f"Did you know that <https://isi-eng.slack.com/archives/C03LJA25B3R/p1658888338096809|spending quality time with your pets> counts towards <{challenge_link}|#wellness-ukraine :quality_time_full_hour_wellness:?>. It is not too late to go for an extra :walking-the-dog: Thank you for your support!"
+    )
+
+    reminder_text = f"Today is a <https://isi-eng.slack.com/archives/C03LJA25B3R/p1661364547624739|special> day: we are celebrating Ukrainian Independence Day among the continuous rocket bombings from Russia. And it is another opportunity to <{challenge_link}|continue your support towards #wellness-ukraine campaign.> Thank you for your help!"
+
+    reminder_text = f"<https://isi-eng.slack.com/archives/C03LJA25B3R/p1661562829586439|Resist> with <http://go/wellness-ukraine-stats|{len(todays_active_users)}> of your friends who participated in <{challenge_link}|#wellness-ukraine challenge>. Please <{challenge_link}|continue your support. Thank you!>"
+
+    reminder_text = f"This is the last day to play the game :tada: I can't beleive this journey is over and this is your last reminder! At this time we have raised $99620: but if 38 more people will participate in <{challenge_link}|#wellness-ukraine today> we will be at 100K! Take a great care of yourself, and please continue your wellness activities: from now the honors are on you to spend time on what brings you wellness and balance in life. If you have not completed the <https://forms.gle/y87d7xio6P7Ctiun8|survey> it is not too late to claim your prize! And thank you for making a difference!"
+
+    #reminder_text = random.choice(reminders)
+
+    app.client.chat_postMessage(
+        channel=inv_map[ADMIN],
+        text=reminder_text)
+
     input()
     for member in tqdm(missing_activity):
         app.client.chat_postMessage(
             channel=inv_map[member],
-            text=f"Happy 4th of July! I'm thankful for all the support the American people have provided Ukraine. And for all the <https://isi-eng.slack.com/archives/C03LJA25B3R/p1656946907790789|support> from you. Thank you!")
+            text=reminder_text)
 
 
 if __name__ == '__main__':
