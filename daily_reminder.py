@@ -47,6 +47,183 @@ def get_channel_id(channel_name):
 
     return channel_mapping[channel_name]
 
+def get_blocks(text):
+    # blocks = [
+    #     {
+    #         "type": "section",
+    #         "text": {
+    #             "type": "mrkdwn",
+    #             "text": text,
+    #         }
+    #     },
+    #     {
+    #         "type": "actions",
+    #         "elements": [
+    #             {
+    #                 "type": "button",
+    #                 "text": {
+    #                     "type": "plain_text",
+    #                     "text": ":bike: 2",
+    #                     "emoji": True
+    #                 },
+    #                 "value": "click_me_123",
+    #                 "action_id": "actionId-remove-bike"
+    #             },
+    #             {
+    #                 "type": "button",
+    #                 "text": {
+    #                     "type": "plain_text",
+    #                     "text": ":family: 1",
+    #                     "emoji": True
+    #                 },
+    #                 "value": "click_me_123",
+    #                 "action_id": "actionId-remove-family-time"
+    #             }
+    #         ]
+    #     },
+    #     {
+    #         "type": "context",
+    #         "elements": [
+    #             {
+    #                 "type": "plain_text",
+    #                 "text": "Click on the icons above to remove activities from your log.",
+    #                 "emoji": True
+    #             }
+    #         ]
+    #     },
+    #     {
+    #         "type": "divider"
+    #     },
+    #     {
+    #         "type": "section",
+    #         "text": {
+    #             "type": "mrkdwn",
+    #             "text": "\n *Please select an activity to add it:*"
+    #         }
+    #     },
+    #     {
+    #         "type": "actions",
+    #         "elements": [
+    #             {
+    #                 "type": "static_select",
+    #                 "placeholder": {
+    #                     "type": "plain_text",
+    #                     "text": "What activity did you do?",
+    #                     "emoji": True
+    #                 },
+    #                 "options": [
+    #                     {
+    #                         "text": {
+    #                             "type": "plain_text",
+    #                             "text": ":muscle: Workout",
+    #                             "emoji": True
+    #                         },
+    #                         "value": "value-0"
+    #                     },
+    #                     {
+    #                         "text": {
+    #                             "type": "plain_text",
+    #                             "text": ":family: Family Time",
+    #                             "emoji": True
+    #                         },
+    #                         "value": "value-1"
+    #                     },
+    #                     {
+    #                         "text": {
+    #                             "type": "plain_text",
+    #                             "text": ":bike: Exercise Outdoors",
+    #                             "emoji": True
+    #                         },
+    #                         "value": "value-2"
+    #                     }
+    #                 ],
+    #                 "action_id": "actionId-activity"
+    #             },
+    #             {
+    #                 "type": "static_select",
+    #                 "placeholder": {
+    #                     "type": "plain_text",
+    #                     "text": "ba minutes",
+    #                     "emoji": True
+    #                 },
+    #                 "options": [
+    #                     {
+    #                         "text": {
+    #                             "type": "plain_text",
+    #                             "text": "30 Minutes"
+    #                         },
+    #                         "value": "value-0"
+    #                     },
+    #                     {
+    #                         "text": {
+    #                             "type": "plain_text",
+    #                             "text": "1 Hour"
+    #                         },
+    #                         "value": "value-1"
+    #                     }
+    #                 ],
+    #                 "initial_option": {
+    #                     "text": {
+    #                         "type": "plain_text",
+    #                         "text": "30 Minutes"
+    #                     },
+    #                     "value": "value-0"
+    #                 },
+    #                 "action_id": "actionId-duration"
+    #             }
+    #         ]
+    #     },
+    #     {
+    #         "type": "section",
+    #         "text": {
+    #             "type": "mrkdwn",
+    #             "text": "Thank you for participating and supporting :flag-ua: ."
+    #         },
+    #         "accessory": {
+    #             "type": "button",
+    #             "text": {
+    #                 "type": "plain_text",
+    #                 "text": "Add Activity",
+    #                 "emoji": True
+    #             },
+    #             "value": "click_me_123",
+    #             "action_id": "button-action"
+    #         }
+    #     }
+    # ]
+
+
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": text,
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "You can add your activity manually"
+            },
+            "accessory": {
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "Add",
+                    "emoji": True
+                },
+                "value": "click_me_123",
+                "action_id": "open_modal"
+            }
+        }
+    ]
+
+    return blocks
+
+
+
 
 def main():
     channel_id = get_channel_id(CHANNEL_NAME)
@@ -84,12 +261,42 @@ def main():
     if user_count is None or user_count == 0:
         user_count_str = 'some'
 
+    text = (f"<!channel> Today is {today_str}, the {day_number_str} day of the Russian Invasion of :flag-ua: "
+            "\n*Please consider participating in the wellness challenge today!*" +
+            f"\n_Yesterday, {user_count_str} users committed to wellness, adding {daily_balance}$ "
+            "towards reducing pain and suffering. Together we are stronger than ever. Thank you!_")
+
+    print(text)
+
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": text
+            }
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Add custom",
+                        "emoji": True
+                    },
+                    "value": "click_me_123",
+                    "action_id": "open_modal",
+                },
+            ],
+        }
+    ]
+
     daily_post_status = app.client.chat_postMessage(
         channel=channel_id,
-        text=f"<!channel> Today is {today_str}, the {day_number_str} day of the Russian Invasion of :flag-ua: "
-        "\n*Please consider participating in the wellness challenge today!*"
-        f"\n_Yesterday, {user_count_str} users committed to wellness, adding {daily_balance}$ "
-        "towards reducing pain and suffering. Together we are stronger than ever. Thank you!_"
+        blocks=blocks,
+        text=text
     )
 
     timestamp = daily_post_status.data['ts']

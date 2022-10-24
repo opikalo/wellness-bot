@@ -13,13 +13,16 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from dotenv import load_dotenv
 
+import humanize
+
 import sentry_sdk
 from sentry_sdk.integrations.redis import RedisIntegration
 
 from wellness_redis import get_redis
 from meta import (MetaConversion, BALANCE_CAP, REWARDS, MEGA_REWARDS, ALL_TOTALS_HASH,
                   USER_TOTALS_HASH, DAILY_TOTALS_HASH, DAILY_UNIQUE_HASH,
-                  WEEKLY_USER_TOTALS_HASH)
+                  WEEKLY_USER_TOTALS_HASH, CUSTOM_DURATION_OPTIONS,
+                  CUSTOM_ACTIVITIES_OPTIONS)
 
 load_dotenv()
 
@@ -503,6 +506,128 @@ def handle_message_events(body, logger):
 def hello(body, ack):
     ack(f"Hi <@{body['user_id']}> contibuted 10 coins!")
 
+
+@app.action("button-action")
+def handle_some_action(ack, body, logger):
+    ack()
+    logger.info(pprint.pformat(body))
+
+
+@app.action("actionId-activity")
+def handle_some_action(ack, body, logger):
+    ack()
+    logger.info(pprint.pformat(body))
+
+
+@app.shortcut("open_modal")
+@app.action("open_modal")
+def open_modal(ack, body, client, logger):
+    # Acknowledge the command request
+    ack()
+
+    logger.info(pprint.pformat(body))
+
+    message_date = convert_slack_time(body['message']['ts'])
+
+    display_date = humanize.naturaldate(message_date)
+
+    # Call views_open with the built-in client
+    client.views_open(
+        # Pass a valid trigger_id within 3 seconds of receiving it
+        trigger_id=body["trigger_id"],
+        # View payload
+        view={
+            "type": "modal",
+            # View identifier
+            "callback_id": "view_add",
+            "title": {"type": "plain_text", "text": "Adding Custom Duration"},
+            "submit": {"type": "plain_text", "text": "Add"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "block_id": "title_block_id",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"\n *Please select an activity to add for {display_date}"
+                    }
+                },
+                {
+                    "type": "actions",
+                    "block_id": "activity_block_id",
+                    "elements": [
+                        {
+                            "type": "static_select",
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": "What activity did you do?",
+                                "emoji": True
+                            },
+                            "options": CUSTOM_ACTIVITIES_OPTIONS,
+                            "action_id": "changed-activity"
+                        },
+                        {
+                            "type": "static_select",
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": "Duration",
+                                "emoji": True
+                            },
+                            "options": CUSTOM_DURATION_OPTIONS,
+                            "action_id": "changed-duration"
+                        },
+                    ]
+                }
+            ]
+        }
+    )
+
+
+@app.action("changed-activity")
+@app.action("changed-duration")
+def open_modal(ack, body, client, logger):
+    # Acknowledge the command request
+    ack()
+
+    logger.info(pprint.pformat(body))
+
+
+@app.view("view_add")
+def handle_view_events(ack, body, logger):
+    ack()
+    logger.info(body)
+
+
+
+# Listen for a button invocation with action_id `button_abc` (assume it's inside of a modal)
+@app.action("add-activity")
+def update_modal(ack, body, client):
+    # Acknowledge the button request
+    ack()
+    # Call views_update with the built-in client
+    client.views_update(
+        # Pass the view_id
+        view_id=body["view"]["id"],
+        # String that represents view state to protect against race conditions
+        hash=body["view"]["hash"],
+        # View payload with updated blocks
+        view={
+            "type": "modal",
+            # View identifier
+            "callback_id": "view_1",
+            "title": {"type": "plain_text", "text": "Updated modal"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {"type": "plain_text", "text": "You updated the modal!"}
+                },
+                {
+                    "type": "image",
+                    "image_url": "https://media.giphy.com/media/SVZGEcYt7brkFUyU90/giphy.gif",
+                    "alt_text": "Yay! The modal was updated"
+                }
+            ]
+        }
+    )
 
 if __name__ == "__main__":
     setup_elastic(os.environ['ELASTIC_HOST'])

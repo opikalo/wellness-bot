@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import logging
 import pprint
@@ -99,6 +100,11 @@ def main():
     activity_search.query = Q('bool', must=[Q('match', channel_id=channel_id)])
 
     activities = activity_search.scan()
+
+    # if True:
+    #     for activity in tqdm(activities):
+    #         with open(os.path.join('backup', activity.meta.id + '.json'), 'w') as fh:
+    #             json.dump(activity.__dict__['_d_'], fh, indent=4, sort_keys=True, default=str)
 
     user_weekly_points = {}
     user_weekly_activities = {}
