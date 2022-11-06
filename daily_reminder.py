@@ -283,12 +283,23 @@ def main():
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": "Add custom",
+                        "text": "Add long activity (2 hours+)",
                         "emoji": True
                     },
-                    "value": "click_me_123",
-                    "action_id": "open_modal",
+                    "value": "add",
+                    "action_id": "open_add_modal",
                 },
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Delete long activity",
+                        "emoji": True
+                    },
+                    "value": "edit",
+                    "action_id": "open_edit_modal",
+                },
+
             ],
         }
     ]

@@ -1,11 +1,12 @@
 import datetime
 
+import json
 import logging
 import os
 import pprint
 
 from cachier import cachier
-from elasticsearch_dsl import Document, Date, Integer, Keyword, Index
+from elasticsearch_dsl import Boolean, Document, Date, Integer, Keyword, Index, Q
 from elasticsearch_dsl.connections import connections
 
 from slack_bolt import App
@@ -22,7 +23,8 @@ from wellness_redis import get_redis
 from meta import (MetaConversion, BALANCE_CAP, REWARDS, MEGA_REWARDS, ALL_TOTALS_HASH,
                   USER_TOTALS_HASH, DAILY_TOTALS_HASH, DAILY_UNIQUE_HASH,
                   WEEKLY_USER_TOTALS_HASH, CUSTOM_DURATION_OPTIONS,
-                  CUSTOM_ACTIVITIES_OPTIONS)
+                  CUSTOM_ACTIVITIES_OPTIONS, POINTS_TO_HUMAN_DURATIONS,
+                  CATEGORY_TO_DESCRIPTION)
 
 load_dotenv()
 
@@ -41,54 +43,9 @@ SLACK_BOT_TOKEN = os.environ['SLACK_BOT_TOKEN']
 SLACK_APP_TOKEN = os.environ['SLACK_APP_TOKEN']
 
 
-
 app = App(token=SLACK_BOT_TOKEN)
 
-meta = MetaConversion()
-
-PRAISE = [
-    "Having you on the team makes a huge difference.",
-    "You always find a way to get it done – and done well!",
-    "It’s really admirable how you always see projects through from conception to completion.",
-    "Thank you for always speaking up in team meetings and providing a unique perspective.",
-    "Your efforts at strengthening our culture have not gone unnoticed.",
-    "Fantastic work!",
-    "Even when the going gets tough, you continue to have the best attitude!",
-    "It’s amazing how you always help new employees get up to speed.",
-    "Wow! Just when I thought your work couldn’t get any better!",
-    "Your work ethic speaks for itself.",
-    "Thanks for always being willing to lend a hand.",
-    "The pride you take in your work is truly inspiring.",
-    "You’re so great to work with.",
-    "I am continually impressed by the results you produce!",
-    "Thank you for being so flexible.",
-    "It’s incredible how thorough your work is.",
-    "Your work ethic is out of this world!",
-    "You have an extremely healthy perspective.",
-    "You’re one of the most reliable employees I’ve ever had.",
-    "Thank you for setting a great example for your coworkers.",
-    "You’re really good at cheering everybody up!",
-    "Is there anything you can’t do?!",
-    "It’s amazing how you’re always able to overcome any obstacle thrown your way.",
-    "Keep up the great work!",
-    "I was blown away by your contributions this week.",
-    "I really enjoy working with you.",
-    "You’re awesome!",
-    "You are an invaluable member of the team.",
-    "I can’t believe how lucky I am to have a great employee like you.",
-    "You come up with fantastic ideas!",
-    "Wow! Nice work.",
-    "I just wanted to let you know how much you mean to the team.",
-    "How did this place ever operate without you?!",
-    "You play a crucial role in our company’s success.",
-    "It’s so obvious how you pay attention to detail.",
-    "You are always so quick to show initiative.",
-    "You’re an awesome employee!",
-    "It’s incredible how often you go above and beyond.",
-    "Your work never ceases to amaze me!",
-    "Things have definitely been crazy lately, but you’re crushing it!"
-]
-
+meta_conv = MetaConversion()
 
 
 def convert_slack_time(ts):
@@ -98,8 +55,9 @@ def convert_slack_time(ts):
 
 def get_date_meta(ts):
     date = convert_slack_time(ts)
+    sun_week = int(date.strftime("%U"))
     year, week, day = date.isocalendar()
-    return (date, year, week, day)
+    return (date, year, sun_week, day)
 
 
 class WellnessActivity(Document):
@@ -117,6 +75,7 @@ class WellnessActivity(Document):
     challenge_week = Integer()
     challenge_day = Integer()
 
+    category = Keyword()
     reaction_ts = Keyword()
     reaction_date = Date()
     reaction_year = Integer()
@@ -126,6 +85,8 @@ class WellnessActivity(Document):
     reported_date = Date()
 
     points = Integer()
+
+    deleted = Boolean()
 
     class Index:
         name = os.environ['WELLNESS_INDEX']
@@ -145,10 +106,19 @@ class WellnessActivity(Document):
                                                          self.channel_id,
                                                          ts_encoding)
 
+        if self.deleted is None:
+            self.deleted = False
+
         return super(WellnessActivity, self).save(** kwargs)
 
     def is_reported(self):
         return datetime.datetime.utcnow() >= self.reported_date
+
+    def human_str(self):
+        human_duration = POINTS_TO_HUMAN_DURATIONS[abs(self.points)]
+        human_descr = CATEGORY_TO_DESCRIPTION[self.category]
+        descr = f":{self.activity}: {human_descr} for {human_duration} ({self.points} points)"
+        return descr
 
 
 def setup_elastic(elastic_host):
@@ -334,6 +304,16 @@ def get_reaction_icon(reaction):
     return reaction.split('::')[0]
 
 
+def get_username_email(slack_user_id):
+    user_info = get_cached_user_data(slack_user_id)
+
+    user_name = user_info['user']['name']
+    user_email = user_info['user']['profile']['email']
+    sentry_sdk.set_user({'username': user_name, 'email': user_email})
+
+    return (user_name, user_email)
+
+
 @app.event("reaction_added")
 @app.event("reaction_removed")
 def reaction_added(event, say, logger):
@@ -356,43 +336,58 @@ def reaction_added(event, say, logger):
     # reaction has skin tone, while icon is just an icon name
     icon = get_reaction_icon(reaction)
 
-    if icon not in meta.valid_reactions:
+    if icon not in meta_conv.valid_reactions:
         return
 
     logger.debug(pprint.pformat(event))
 
-    user_info = get_cached_user_data(event["user"])
+    slack_user_id = event['user']
+    user_name,  user_email = get_username_email(slack_user_id)
 
-    user_name = user_info['user']['name']
-    user_email = user_info['user']['profile']['email']
-    sentry_sdk.set_user({'username': user_name, 'email': user_email})
+    logger.debug('%s reaction from %s (%s)', reaction, user_name, user_email)
 
     channel_id = event['item']['channel']
     challenge_ts = event['item']['ts']
     reaction_ts = event['event_ts']
 
-    logger.debug('%s reaction from %s (%s)', reaction, user_name, user_email)
+    points = meta_conv.reaction_to_points[icon]
+    description = meta_conv.reaction_to_description[icon]
+    action = meta_conv.reaction_to_action[icon]
+    category = meta_conv.reaction_to_category[icon]
 
-    slack_user_id = event['user']
-
-    points = meta.reaction_to_points[icon]
-    description = meta.reaction_to_description[icon]
-    action = meta.reaction_to_action[icon]
+    deleted = False
 
     if event['type'] == 'reaction_removed':
         points = -points
+        deleted = True
 
     activity = WellnessActivity(
         channel_id=channel_id,
         activity=action,
+        category=category,
         user_name=user_name,
         user_email=user_email,
         challenge_ts=challenge_ts,
         reaction_ts=reaction_ts,
         points=points,
+        deleted=deleted
     )
 
     activity.save()
+
+    (user_before_balance, user_balance, after_balance) = register_activity(
+        activity, slack_user_id, description, logger)
+
+    post_reward_update(user_before_balance, user_balance, slack_user_id,
+                       channel_id)
+
+    post_dm_update(points, after_balance, user_balance, activity,
+                   slack_user_id, reaction, description)
+
+
+def register_activity(activity, slack_user_id, description, logger):
+
+    points = activity.points
 
     # Get totals
     rds = get_redis()
@@ -441,7 +436,6 @@ def reaction_added(event, say, logger):
     else:
         before_balance = int(before_balance)
 
-
     if user_before_balance is None:
         user_before_balance = 0
     else:
@@ -452,18 +446,6 @@ def reaction_added(event, say, logger):
     else:
         user_balance = int(user_balance)
 
-    for reward in REWARDS:
-        threshold = reward.cost
-        if user_before_balance < threshold and user_balance >= threshold:
-            app.client.chat_postMessage(
-                channel=slack_user_id,
-                text=f':tada: You have a :{reward.reaction}: reward: '
-                f'{reward.description}. Thank you so much!')
-
-            say(f':tada: <@{slack_user_id}> just earned :{reward.reaction}: '
-                f'badge @{reward.cost} points: {reward.description}')
-
-
     if before_balance < BALANCE_CAP and after_balance >= BALANCE_CAP:
         app.client.chat_postMessage(
             channel=slack_user_id,
@@ -473,23 +455,56 @@ def reaction_added(event, say, logger):
             'wellness goals: we do not mind at all. However, Intuitive Foundation'
             f' matches only up to {BALANCE_CAP} points weekly._')
 
-        say(f':tada: <@{slack_user_id}> reached a weekly '
+        app.client.chat_postMessage(
+            channel=activity.channel_id,
+            text=f':tada: <@{slack_user_id}> reached a weekly '
             f'maximum weekly goal of {BALANCE_CAP} points!')
 
     logger.warning('%s=%s', weekly_user_activity_hash, after_balance)
 
+    return (user_before_balance, user_balance, after_balance)
+
+
+def post_reward_update(user_before_balance, user_balance, slack_user_id,
+                       channel_id):
+    for reward in REWARDS:
+        threshold = reward.cost
+        if user_before_balance < threshold and user_balance >= threshold:
+            app.client.chat_postMessage(
+                channel=slack_user_id,
+                text=f':tada: You have a :{reward.reaction}: reward: '
+                f'{reward.description}. Thank you so much!')
+
+            app.client.chat_postMessage(
+                channel=channel_id,
+                text=f':tada: <@{slack_user_id}> just earned :{reward.reaction}: '
+                f'badge @{reward.cost} points: {reward.description}')
+
+
+def post_dm_update(points, after_balance, user_balance, activity,
+                   slack_user_id, reaction, description, category=False):
+
+    if category:
+        add_identifier = f'custom duration {description.lower()} entry'
+        remove_identifier = f'custom duration {description.lower()} entry'
+    else:
+        add_identifier = f':{reaction}:={description}'
+        remove_identifier = f':{reaction}:'
+
     parent_url = activity.challenge_link
-    if event['type'] == 'reaction_added':
+    if points > 0:
         app.client.chat_postMessage(
             channel=slack_user_id,
-            text=f'{points:+} points for :{reaction}:={description} <{parent_url}|here> '
+            text=f'{points:+} points for {add_identifier} '
+            f'<{parent_url}|here> '
             '(your weekly balance is '
-            f'{after_balance} out of weekly {BALANCE_CAP}. Grand total is {user_balance} points).'
+            f'{after_balance} out of weekly {BALANCE_CAP}. Grand total is '
+            f'{user_balance} points).'
         )
-    elif event['type'] == 'reaction_removed':
+    elif points < 0:
         app.client.chat_postMessage(
             channel=slack_user_id,
-            text=f'adjusted {points:+} points for removing :{reaction}: '
+            text=f'adjusted {points:+} points for removing {remove_identifier} '
             f'<{parent_url}|here> '
             f'(your weekly balance is {after_balance} out of {BALANCE_CAP})'
         )
@@ -519,9 +534,18 @@ def handle_some_action(ack, body, logger):
     logger.info(pprint.pformat(body))
 
 
+def private_metadata_to_str(channel_id, message_ts, action_ts):
+    return json.dumps([channel_id, message_ts, action_ts])
+
+
+def private_metadata_from_str(str_data):
+    return json.loads(str_data)
+
+
+
 @app.shortcut("open_modal")
-@app.action("open_modal")
-def open_modal(ack, body, client, logger):
+@app.action("open_add_modal")
+def open_add_modal(ack, body, client, logger):
     # Acknowledge the command request
     ack()
 
@@ -530,6 +554,15 @@ def open_modal(ack, body, client, logger):
     message_date = convert_slack_time(body['message']['ts'])
 
     display_date = humanize.naturaldate(message_date)
+
+    action_ts = body['actions'][0]['action_ts']
+    channel_id = body['container']['channel_id']
+    message_ts = body['container']['message_ts']
+
+    private_metadata = private_metadata_to_str(channel_id, message_ts,
+                                               action_ts)
+
+    logger.info('private_metadata %s', private_metadata)
 
     # Call views_open with the built-in client
     client.views_open(
@@ -542,6 +575,7 @@ def open_modal(ack, body, client, logger):
             "callback_id": "view_add",
             "title": {"type": "plain_text", "text": "Adding Custom Duration"},
             "submit": {"type": "plain_text", "text": "Add"},
+            "private_metadata": private_metadata,
             "blocks": [
                 {
                     "type": "section",
@@ -582,19 +616,292 @@ def open_modal(ack, body, client, logger):
     )
 
 
+@app.action("multi_static_select-action")
+def handle_multi_select_action(ack, body, logger):
+    ack()
+    logger.debug(body)
+
+
+@app.action("selected_option")
+def handle_selected_option(ack, body, logger):
+    ack()
+    logger.debug(body)
+
+
+@app.shortcut("open_modal")
+@app.action("open_edit_modal")
+def open_edit_modal(ack, body, client, logger):
+    # Acknowledge the command request
+    ack()
+
+    logger.info(pprint.pformat(body))
+
+    message_date = convert_slack_time(body['message']['ts'])
+
+    display_date = humanize.naturaldate(message_date)
+
+    action_ts = body['actions'][0]['action_ts']
+    channel_id = body['container']['channel_id']
+    message_ts = body['container']['message_ts']
+
+    user_name = body['user']['name']
+
+    private_metadata = private_metadata_to_str(channel_id, message_ts,
+                                               action_ts)
+
+    logger.info('private_metadata %s', private_metadata)
+
+    activity_search = WellnessActivity.search()
+    activity_search.query = Q('bool', must=[
+        Q('match', channel_id=channel_id),
+        Q('match', challenge_ts=message_ts),
+        Q('match', user_name=user_name),
+        Q('match', deleted=False)])
+
+    activities = activity_search.filter('range', points={'gte': 20}).execute()
+
+    options = []
+
+    for activity in activities:
+        logger.info("Found: %s", activity.human_str())
+        options.append({
+            "text": {
+                "type": "plain_text",
+                "text": activity.human_str(),
+                "emoji": True
+            },
+            "value": f"{activity.meta.id}"
+        })
+
+    if options:
+        blocks = [
+            {
+                "block_id": "selection",
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"Select long activities to delete for {display_date}"
+                },
+                "accessory": {
+                    "type": "multi_static_select",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Select options",
+                        "emoji": True
+                    },
+                    "options": options,
+                    "action_id": "multi_static_select-action"
+                }
+            }
+        ]
+
+        client.views_open(
+            # Pass a valid trigger_id within 3 seconds of receiving it
+            trigger_id=body["trigger_id"],
+            # View payload
+            view={
+                "type": "modal",
+                # View identifier
+                "callback_id": "view_edit",
+                "title": {"type": "plain_text", "text": "Delete Custom Activity"},
+                "submit": {"type": "plain_text", "text": "Delete"},
+                "private_metadata": private_metadata,
+                "blocks":  blocks
+            }
+        )
+
+    else:
+        blocks = [
+            {
+                "type": "section",
+                "block_id": "title_block_id",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"Sorry, could not find custom activities (2 hours+) recorded {display_date}.\nNot seeing short activities? You can delete those by clicking your previous reactions."
+                }
+            }
+        ]
+
+        client.views_open(
+            # Pass a valid trigger_id within 3 seconds of receiving it
+            trigger_id=body["trigger_id"],
+            # View payload
+            view={
+                "type": "modal",
+                # View identifier
+                "callback_id": "view_edit",
+                "title": {"type": "plain_text", "text": "Delete Custom Activity"},
+                "private_metadata": private_metadata,
+                "blocks":  blocks
+            }
+        )
+
+
+
+    # Call views_open with the built-in client
+    # client.views_open(
+    #     # Pass a valid trigger_id within 3 seconds of receiving it
+    #     trigger_id=body["trigger_id"],
+    #     # View payload
+    #     view={
+    #         "type": "modal",
+    #         # View identifier
+    #         "callback_id": "view_edit",
+    #         "title": {
+    #             "type": "plain_text",
+    #             "text": "Adjusting Custom Activity"
+    #         },
+    #         "submit": {"type": "plain_text", "text": "Delete"},
+    #         "private_metadata": private_metadata,
+    #         "blocks": [
+    #             {
+    #                 "type": "section",
+    #                 "text": {
+    #                     "type": "mrkdwn",
+    #                     "text": "Select activities to delete"
+    #                 },
+    #                 "accessory": {
+    #                     "type": "multi_static_select",
+    #                     "placeholder": {
+    #                         "type": "plain_text",
+    #                         "text": "Select options",
+    #                         "emoji": True
+    #                     },
+    #                     "options": [
+    #                         {
+    #                             "text": {
+    #                                 "type": "plain_text",
+    #                                 "text": ":family: Quality time, 2 hours",
+    #                                 "emoji": True
+    #                             },
+    #                             "value": "value-0"
+    #                         },
+    #                         {
+    #                             "text": {
+    #                                 "type": "plain_text",
+    #                                 "text": ":muscle: Working out, 10 hours",
+    #                                 "emoji": True
+    #                             },
+    #                             "value": "value-1"
+    #                         },
+    #                     ],
+    #                     "action_id": "multi_static_select-action"
+    #                 }
+    #             }
+    #         ]
+    #     })
+
+
 @app.action("changed-activity")
 @app.action("changed-duration")
-def open_modal(ack, body, client, logger):
+def open_add_modal(ack, body, client, logger):
     # Acknowledge the command request
     ack()
 
     logger.info(pprint.pformat(body))
 
 
-@app.view("view_add")
-def handle_view_events(ack, body, logger):
+@app.view("view_edit")
+def handle_edit_events(ack, body, logger):
     ack()
-    logger.info(body)
+    logger.info(pprint.pformat(body))
+
+    slack_user_id = body['user']['id']
+    user_name,  user_email = get_username_email(slack_user_id)
+
+    channel_id, challenge_ts, reaction_ts = private_metadata_from_str(body['view']['private_metadata'])
+
+    docs = body['view']['state']['values']['selection']['multi_static_select-action']['selected_options']
+
+    doc_ids = []
+    for doc in docs:
+        doc_ids.append(doc['value'])
+
+    logger.info('deleting %s', doc_ids)
+
+    # make sure user cannot delete document many times by tagging it as 'deleted=True'
+    for doc_id in doc_ids:
+        record = WellnessActivity.get(id=doc_id)
+        record.update(deleted=True)
+
+        assert record.points > 0
+        negative_activity = WellnessActivity(
+            channel_id=record.channel_id,
+            activity=record.activity,
+            category=record.category,
+            user_name=record.user_name,
+            user_email=record.user_email,
+            challenge_ts=record.challenge_ts,
+            reaction_ts=reaction_ts,
+            points=-record.points,
+        )
+
+        negative_activity.save()
+
+        description_with_hours = record.human_str()
+
+        (user_before_balance, user_balance, after_balance) = register_activity(
+            negative_activity, slack_user_id, description_with_hours, logger)
+
+        post_reward_update(user_before_balance, user_balance, slack_user_id,
+                           channel_id)
+
+        category_icon = meta_conv.category_to_icon[negative_activity.category]
+
+        post_dm_update(negative_activity.points, after_balance, user_balance,
+                       negative_activity,
+                       slack_user_id, category_icon,
+                       description_with_hours, True)
+
+
+
+
+@app.view("view_add")
+def handle_add_events(ack, body, logger):
+    ack()
+    #logger.info(pprint.pformat(body))
+
+    slack_user_id = body['user']['id']
+    user_name,  user_email = get_username_email(slack_user_id)
+
+    channel_id, challenge_ts, reaction_ts = private_metadata_from_str(body['view']['private_metadata'])
+
+    category = body['view']['state']['values']['activity_block_id']['changed-activity']['selected_option']['value']
+    description = body['view']['state']['values']['activity_block_id']['changed-activity']['selected_option']['text']['text']
+    human_hours = body['view']['state']['values']['activity_block_id']['changed-duration']['selected_option']['text']['text']
+
+    description_with_hours = description + ' for ' + human_hours
+
+    points = int(body['view']['state']['values']['activity_block_id']['changed-duration']['selected_option']['value'])
+
+    logger.debug('%s category from %s (%s) for %s points', category, user_name, user_email, points)
+
+    category_icon = meta_conv.category_to_icon[category]
+
+    activity = WellnessActivity(
+        channel_id=channel_id,
+        activity=category_icon,
+        category=category,
+        user_name=user_name,
+        user_email=user_email,
+        challenge_ts=challenge_ts,
+        reaction_ts=reaction_ts,
+        points=points,
+    )
+
+    activity.save()
+
+    (user_before_balance, user_balance, after_balance) = register_activity(
+        activity, slack_user_id, description_with_hours, logger)
+
+    post_reward_update(user_before_balance, user_balance, slack_user_id,
+                       channel_id)
+
+    category_icon = meta_conv.category_to_icon[category]
+
+    post_dm_update(points, after_balance, user_balance, activity,
+                   slack_user_id, category_icon, description_with_hours, True)
+
 
 
 

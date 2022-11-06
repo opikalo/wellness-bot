@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 
 import sentry_sdk
 
-from elasticsearch_dsl import Q, A
+from elasticsearch_dsl import Q
 
 from tqdm import tqdm
 
