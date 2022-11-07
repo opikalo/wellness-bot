@@ -27,6 +27,7 @@ fido2==0.9.3
 flake8==4.0.1
 future==0.16.0
 gimme-aws-creds==2.4.4
+human-readable==1.2.3
 humanize==4.2.0
 idna==3.3
 importlib-metadata==4.2.0
